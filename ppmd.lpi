@@ -31,7 +31,7 @@
         <FormatVersion Value="1"/>
       </local>
     </RunParams>
-    <Units Count="2">
+    <Units Count="4">
       <Unit0>
         <Filename Value="ppmd.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -42,6 +42,16 @@
         <IsPartOfProject Value="True"/>
         <UnitName Value="CarrylessRangeCoder"/>
       </Unit1>
+      <Unit2>
+        <Filename Value="ppmdcontext.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="PPMdContext"/>
+      </Unit2>
+      <Unit3>
+        <Filename Value="ppmdsuballocator.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="PPMdSubAllocator"/>
+      </Unit3>
     </Units>
   </ProjectOptions>
   <CompilerOptions>
