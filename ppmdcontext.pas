@@ -268,7 +268,7 @@ begin
   for i:= 0 to n - 1 do
   begin
   	escfreq -= states[i].Freq;
-  	states[i].Freq:= (states[i].Freq+adder) shr 1;
+  	states[i].Freq:= (states[i].Freq + adder) shr 1;
   	self^.SummFreq += states[i].Freq;
 
   	// Keep states sorted by decreasing frequency
@@ -280,7 +280,7 @@ begin
   		j:= i - 1;
   		while (j > 0) and (tmp.Freq > states[j-1].Freq) do Dec(j);
 
-  		memmove(@states[j + 1], @states[j], sizeof(PPMdState) * (i - j));
+  		Move((@states[j])^, (@states[j + 1])^, sizeof(TPPMdState) * (i - j));
   		states[j]:= tmp;
   	end;
   end;
@@ -288,7 +288,7 @@ begin
   // TODO: add better sorting stage here.
 
   // Drop states whose frequency has fallen to 0
-  if(states[n-1].Freq==0)
+  if (states[n - 1].Freq = 0) then
   {
   	int n0, n1;
   	int numzeros=1;
