@@ -1,11 +1,13 @@
 unit PPMdContext;
 
 {$mode objfpc}{$H+}
+{$packrecords c}
+{$inline on}
 
 interface
 
 uses
-  Classes, SysUtils, CTypes, CarrylessRangeCoder, PPMdSubAllocator;
+  Classes, SysUtils, CTypes, Math, CarrylessRangeCoder, PPMdSubAllocator;
 
 const
   MAX_O = 255;
@@ -247,8 +249,80 @@ begin
 end;
 
 procedure RescalePPMdContext(self: PPPMdContext; model: PPPMdCoreModel);
+var
+  tmp: TPPMdState;
+  states: PPPMdState;
+  i, j, n, escfreq, adder: cint;
 begin
+  states:= PPMdContextStates(self, model);
+  n:= self^.LastStateIndex + 1;
 
+  // Bump frequency of found state
+  model^.FoundState^.Freq += 4;
+
+  // Divide all frequencies and sort list
+  escfreq:= self^.SummFreq + 4;
+  adder:= IfThen(model^.OrderFall = 0, 0, 1);
+  self^.SummFreq:= 0;
+
+  for i:= 0 to n - 1 do
+  begin
+  	escfreq -= states[i].Freq;
+  	states[i].Freq:= (states[i].Freq+adder) shr 1;
+  	self^.SummFreq += states[i].Freq;
+
+  	// Keep states sorted by decreasing frequency
+  	if (i > 0) and (states[i].Freq > states[i - 1].Freq) then
+  	begin
+  		// If not sorted, move current state upwards until list is sorted
+  		tmp:= states[i];
+
+  		j:= i - 1;
+  		while (j > 0) and (tmp.Freq > states[j-1].Freq) do Dec(j);
+
+  		memmove(@states[j + 1], @states[j], sizeof(PPMdState) * (i - j));
+  		states[j]:= tmp;
+  	end;
+  end;
+
+  // TODO: add better sorting stage here.
+
+  // Drop states whose frequency has fallen to 0
+  if(states[n-1].Freq==0)
+  {
+  	int n0, n1;
+  	int numzeros=1;
+  	while(numzeros<n&&states[n-1-numzeros].Freq==0) numzeros++;
+
+  	escfreq+=numzeros;
+
+  	self->LastStateIndex-=numzeros;
+  	if(self->LastStateIndex==0)
+  	{
+  		PPMdState tmp=states[0];
+  		do
+  		{
+  			tmp.Freq=(tmp.Freq+1)>>1;
+  			escfreq>>=1;
+  		}
+  		while(escfreq>1);
+
+  		FreeUnits(model->alloc,self->States,(n+1)>>1);
+  		model->FoundState=PPMdContextOneState(self);
+  		*model->FoundState=tmp;
+
+  		return;
+  	}
+
+  	n0=(n+1)>>1,n1=(self->LastStateIndex+2)>>1;
+  	if(n0!=n1) self->States=ShrinkUnits(model->alloc,self->States,n0,n1);
+  }
+
+  self->SummFreq+=(escfreq+1)>>1;
+  end;
+
+  // The found state is the first one to breach the limit, thus it is the largest and also first
+  model->FoundState=PPMdContextStates(self,model);
 end;
 
 procedure ClearPPMdModelMask(self: PPPMdCoreModel);
