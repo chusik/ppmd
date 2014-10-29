@@ -252,6 +252,7 @@ procedure RescalePPMdContext(self: PPPMdContext; model: PPPMdCoreModel);
 var
   tmp: TPPMdState;
   states: PPPMdState;
+  n0, n1, numzeros: cint = 1;
   i, j, n, escfreq, adder: cint;
 begin
   states:= PPMdContextStates(self, model);
@@ -289,40 +290,36 @@ begin
 
   // Drop states whose frequency has fallen to 0
   if (states[n - 1].Freq = 0) then
-  {
-  	int n0, n1;
-  	int numzeros=1;
-  	while(numzeros<n&&states[n-1-numzeros].Freq==0) numzeros++;
+  begin
+  	while (numzeros < n) and (states[n - 1 - numzeros].Freq = 0) then Inc(numzeros);
 
-  	escfreq+=numzeros;
+  	escfreq += numzeros;
 
-  	self->LastStateIndex-=numzeros;
-  	if(self->LastStateIndex==0)
-  	{
-  		PPMdState tmp=states[0];
-  		do
-  		{
-  			tmp.Freq=(tmp.Freq+1)>>1;
-  			escfreq>>=1;
-  		}
-  		while(escfreq>1);
+  	self^.LastStateIndex -= numzeros;
+  	if (self^.LastStateIndex = 0) then
+  	begin
+  		tmp:= states[0];
+  		repeat
+  		  tmp.Freq:= (tmp.Freq + 1) shr 1;
+  		  escfreq:= escfreq shr 1;
+  		until not (escfreq > 1);
 
-  		FreeUnits(model->alloc,self->States,(n+1)>>1);
-  		model->FoundState=PPMdContextOneState(self);
-  		*model->FoundState=tmp;
+  		FreeUnits(model^.alloc, self^.States, (n + 1) shr 1);
+  		model^.FoundState:= PPMdContextOneState(self);
+  		model^.FoundState^:= tmp;
 
-  		return;
-  	}
+  		Exit;
+  	end;
 
-  	n0=(n+1)>>1,n1=(self->LastStateIndex+2)>>1;
-  	if(n0!=n1) self->States=ShrinkUnits(model->alloc,self->States,n0,n1);
-  }
+  	n0:= (n + 1) shr 1, n1:= (self^.LastStateIndex + 2) shr 1;
+  	if (n0 <> n1) then self^.States:= ShrinkUnits(model^.alloc, self^.States, n0, n1);
+  end;
 
-  self->SummFreq+=(escfreq+1)>>1;
+  self^.SummFreq += (escfreq + 1) shr 1;
   end;
 
   // The found state is the first one to breach the limit, thus it is the largest and also first
-  model->FoundState=PPMdContextStates(self,model);
+  model^.FoundState:= PPMdContextStates(self, model);
 end;
 
 procedure ClearPPMdModelMask(self: PPPMdCoreModel);
