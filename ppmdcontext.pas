@@ -78,7 +78,7 @@ type
 
   procedure ClearPPMdModelMask(self: PPPMdCoreModel);
 
-  // #define SWAP(t1,t2) { PPMdState tmp=(t1); (t1)=(t2); (t2)=tmp; }
+  procedure SWAP(var t1, t2: TPPMdState); inline;
 
 implementation
 
@@ -196,6 +196,9 @@ begin
   Result:= context;
 end;
 
+// Tabulated escapes for exponential symbol distribution
+const ExpEscape: array[0..15] of cuint8 = ( 25,14,9,7,5,5,4,4,4,3,3,3,2,2,2,2 );
+
 procedure PPMdDecodeBinSymbol(self: PPPMdContext; model: PPPMdCoreModel;
   bs: pcuint16; freqlimit: cint; altnextbit: cbool);
 begin
@@ -211,7 +214,19 @@ end;
 procedure UpdatePPMdContext1(self: PPPMdContext; model: PPPMdCoreModel;
   state: PPPMdState);
 begin
+  state^.Freq += 4;
+  self^.SummFreq += 4;
 
+  if (state[0].Freq > state[-1].Freq) then
+  begin
+    SWAP(state[0], state[-1]);
+    model^.FoundState:= @state[-1];
+    if (state[-1].Freq > MAX_FREQ) then model^.RescalePPMdContext(self, model);
+  end
+  else
+  begin
+    model^.FoundState:= state;
+  end;
 end;
 
 procedure PPMdDecodeSymbol2(self: PPPMdContext; model: PPPMdCoreModel;
@@ -223,7 +238,12 @@ end;
 procedure UpdatePPMdContext2(self: PPPMdContext; model: PPPMdCoreModel;
   state: PPPMdState);
 begin
-
+  model^.FoundState:= state;
+  state^.Freq += 4;
+  self^.SummFreq += 4;
+  if (state^.Freq > MAX_FREQ) then model^.RescalePPMdContext(self, model);
+  Inc(model^.EscCount);
+  model^.RunLength:= model^.InitRL;
 end;
 
 procedure RescalePPMdContext(self: PPPMdContext; model: PPPMdCoreModel);
@@ -233,7 +253,17 @@ end;
 
 procedure ClearPPMdModelMask(self: PPPMdCoreModel);
 begin
+  self^.EscCount:= 1;
+  FillChar(self^.CharMask, sizeof(self^.CharMask), 0);
+end;
 
+procedure SWAP(var t1, t2: TPPMdState);
+var
+  tmp: TPPMdState;
+begin
+  tmp:= t1;
+  t1:= t2;
+  t2:= tmp;
 end;
 
 end.
