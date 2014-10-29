@@ -233,8 +233,48 @@ end;
 
 procedure PPMdDecodeSymbol2(self: PPPMdContext; model: PPPMdCoreModel;
   see: PSEE2Context);
+var
+  state: PPPMdState;
+  i, n, count, total: cint = 0;
+  ps: array[Byte] of PPPMdState;
 begin
+	n:= self^.LastStateIndex - model^.LastMaskIndex;
 
+	state:= PPMdContextStates(self, model);
+	for i:= 0 to n - 1 do
+	begin
+		while (model^.CharMask[state^.Symbol] = model^.EscCount) do Inc(state);
+
+		total += state^.Freq;
+		ps[i]:= state;
+                Inc(state);
+	end;
+
+	model^.scale += total;
+	count:= RangeCoderCurrentCount(@model^.coder, model^.scale);
+
+	if (count < total) then
+	begin
+		i:= 0;
+                highcount:= ps[0]^.Freq;
+		while (highcount <= count) do
+                begin
+                  Inc(i);
+                  highcount += ps[i]^.Freq;
+                end;
+
+		RemoveRangeCoderSubRange(@model^.coder, highcount - ps[i]^.Freq, highcount);
+		UpdateSEE2(see);
+		UpdatePPMdContext2(self, model, ps[i]);
+	end
+	else
+	begin
+		RemoveRangeCoderSubRange(@model^.coder, total, model^.scale);
+		model^.LastMaskIndex:= self^.LastStateIndex;
+		see^.Summ += model^.scale;
+
+		for i:=0 to n - 1 do model^.CharMask[ps[i]^.Symbol]:= model^.EscCount;
+	end;
 end;
 
 procedure UpdatePPMdContext2(self: PPPMdContext; model: PPPMdCoreModel;
