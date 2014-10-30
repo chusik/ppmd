@@ -193,8 +193,23 @@ begin
 end;
 
 function ExpandUnitsVariantI(self: PPPMdSubAllocatorVariantI; oldoffs: cuint32; oldnum: cint): cuint32;
+var
+  offs: cuint32;
+  oldptr: Pointer;
+  oldindex, newindex: cint;
 begin
+  oldptr:= _OffsetToPointer(self, oldoffs);
+  oldindex:= self^.Units2Index[oldnum - 1];
+  newindex:= self^.Units2Index[oldnum];
+  if (oldindex = newindex) then Exit(oldoffs);
 
+  offs:= AllocUnitsVariantI(self, oldnum + 1);
+  if (offs <> 0) then
+  begin
+    // !!!memcpy(_OffsetToPointer(self, offs), oldptr, oldnum * UNIT_SIZE);
+    InsertBlockAfter(@self^.BList[oldindex], oldptr, oldnum, self);
+  end;
+  Result:= offs;
 end;
 
 function ShrinkUnitsVariantI(self: PPPMdSubAllocatorVariantI; oldoffs: cuint32; oldnum: cint; newnum: cint): cuint32;
