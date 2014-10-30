@@ -6,7 +6,8 @@ uses
   {$IFDEF UNIX}{$IFDEF UseCThreads}
   cthreads,
   {$ENDIF}{$ENDIF}
-  Classes, CarrylessRangeCoder, PPMdContext, PPMdSubAllocator
+  Classes, CarrylessRangeCoder, PPMdContext, PPMdSubAllocator,
+PPMdSubAllocatorVariantI
   { you can add units after this };
 
 begin
