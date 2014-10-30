@@ -201,16 +201,100 @@ end;
 // Tabulated escapes for exponential symbol distribution
 const ExpEscape: array[0..15] of cuint8 = ( 25,14,9,7,5,5,4,4,4,3,3,3,2,2,2,2 );
 
+function GET_MEAN(SUMM, SHIFT, ROUND: cuint16): cuint16; inline;
+begin
+  Result:= ((SUMM + (1 shl (SHIFT - ROUND))) shr (SHIFT));
+end;
+
 procedure PPMdDecodeBinSymbol(self: PPPMdContext; model: PPPMdCoreModel;
   bs: pcuint16; freqlimit: cint; altnextbit: cbool);
+var
+  bit: cint;
+  rs: PPPMdState;
 begin
+  rs:= PPMdContextOneState(self);
 
+  if (altnextbit) then bit:= NextWeightedBitFromRangeCoder2(@model^.coder, bs^, TOT_BITS)
+  else bit:= NextWeightedBitFromRangeCoder(@model^.coder, bs^, 1 shl TOT_BITS);
+
+  if (bit = 0) then
+  begin
+    model^.PrevSuccess:= 1;
+    Inc(model^.RunLength);
+    model^.FoundState:= rs;
+
+    if (rs^.Freq < freqlimit) then Inc(rs^.Freq);
+    bs^ += INTERVAL - GET_MEAN(bs^, PERIOD_BITS, 2);
+  end
+  else
+  begin
+    model^.PrevSuccess:= 0;
+    model^.FoundState:= nil;
+    model^.LastMaskIndex:= 0;
+    model^.CharMask[rs^.Symbol]:= model^.EscCount;
+
+    bs^ -= GET_MEAN(bs^, PERIOD_BITS, 2);
+    model^.InitEsc:= ExpEscape[bs^ shr 10];
+  end;
 end;
 
 function PPMdDecodeSymbol1(self: PPPMdContext; model: PPPMdCoreModel;
   greaterorequal: cbool): cint;
+var
+  states: PPPMdState;
+  adder, count, firstcount,
+  highcount, i, lastsym: cint;
 begin
+  model^.scale:= self^.SummFreq;
 
+  states:= PPMdContextStates(self, model);
+  firstcount:= states[0].Freq;
+  count:= RangeCoderCurrentCount(@model^.coder, model^.scale);
+  adder:= IfThen(greaterorequal, 1, 0);
+
+  if (count < firstcount) then
+  begin
+    RemoveRangeCoderSubRange(@model^.coder, 0, firstcount);
+    if (2 * firstcount + adder > cint(model^.scale)) then
+    begin
+  	    model^.PrevSuccess:= 1;
+  	    Inc(model^.RunLength);
+    end
+    else model^.PrevSuccess:= 0;
+
+    model^.FoundState:= @states[0];
+    states[0].Freq:= firstcount + 4;
+    self^.SummFreq += 4;
+
+    if (firstcount + 4 > MAX_FREQ) then model^.RescalePPMdContext(self, model);
+
+    Exit(-1);
+  end;
+
+  highcount:= firstcount;
+  model^.PrevSuccess:= 0;
+
+  for i:= 1 to self^.LastStateIndex do
+  begin
+    highcount += states[i].Freq;
+    if (highcount > count) then
+    begin
+      RemoveRangeCoderSubRange(@model^.coder, highcount - states[i].Freq, highcount);
+      UpdatePPMdContext1(self, model, @states[i]);
+      Exit(-1);
+    end;
+  end;
+
+  lastsym:= model^.FoundState^.Symbol;
+
+  // if ( Suffix ) PrefetchData(Suffix);
+  RemoveRangeCoderSubRange(@model^.coder, highcount, model^.scale);
+  model^.LastMaskIndex:= self^.LastStateIndex;
+  model^.FoundState:= nil;
+
+  for i:= 0 to self^.LastStateIndex do model^.CharMask[states[i].Symbol]:= model^.EscCount;
+
+  Result:= lastsym;
 end;
 
 procedure UpdatePPMdContext1(self: PPPMdContext; model: PPPMdCoreModel;
@@ -234,47 +318,49 @@ end;
 procedure PPMdDecodeSymbol2(self: PPPMdContext; model: PPPMdCoreModel;
   see: PSEE2Context);
 var
+  highcount: cint;
+  total: cint = 0;
   state: PPPMdState;
-  i, n, count, total: cint = 0;
+  i, n, count: cint;
   ps: array[Byte] of PPPMdState;
 begin
-	n:= self^.LastStateIndex - model^.LastMaskIndex;
+  n:= self^.LastStateIndex - model^.LastMaskIndex;
 
-	state:= PPMdContextStates(self, model);
-	for i:= 0 to n - 1 do
-	begin
-		while (model^.CharMask[state^.Symbol] = model^.EscCount) do Inc(state);
+  state:= PPMdContextStates(self, model);
+  for i:= 0 to n - 1 do
+  begin
+    while (model^.CharMask[state^.Symbol] = model^.EscCount) do Inc(state);
 
-		total += state^.Freq;
-		ps[i]:= state;
-                Inc(state);
-	end;
+    total += state^.Freq;
+    ps[i]:= state;
+    Inc(state);
+  end;
 
-	model^.scale += total;
-	count:= RangeCoderCurrentCount(@model^.coder, model^.scale);
+  model^.scale += total;
+  count:= RangeCoderCurrentCount(@model^.coder, model^.scale);
 
-	if (count < total) then
-	begin
-		i:= 0;
-                highcount:= ps[0]^.Freq;
-		while (highcount <= count) do
-                begin
-                  Inc(i);
-                  highcount += ps[i]^.Freq;
-                end;
+  if (count < total) then
+  begin
+    i:= 0;
+    highcount:= ps[0]^.Freq;
+    while (highcount <= count) do
+    begin
+      Inc(i);
+      highcount += ps[i]^.Freq;
+    end;
 
-		RemoveRangeCoderSubRange(@model^.coder, highcount - ps[i]^.Freq, highcount);
-		UpdateSEE2(see);
-		UpdatePPMdContext2(self, model, ps[i]);
-	end
-	else
-	begin
-		RemoveRangeCoderSubRange(@model^.coder, total, model^.scale);
-		model^.LastMaskIndex:= self^.LastStateIndex;
-		see^.Summ += model^.scale;
+    RemoveRangeCoderSubRange(@model^.coder, highcount - ps[i]^.Freq, highcount);
+    UpdateSEE2(see);
+    UpdatePPMdContext2(self, model, ps[i]);
+  end
+  else
+  begin
+    RemoveRangeCoderSubRange(@model^.coder, total, model^.scale);
+    model^.LastMaskIndex:= self^.LastStateIndex;
+    see^.Summ += model^.scale;
 
-		for i:=0 to n - 1 do model^.CharMask[ps[i]^.Symbol]:= model^.EscCount;
-	end;
+    for i:=0 to n - 1 do model^.CharMask[ps[i]^.Symbol]:= model^.EscCount;
+  end;
 end;
 
 procedure UpdatePPMdContext2(self: PPPMdContext; model: PPPMdCoreModel;
@@ -290,9 +376,10 @@ end;
 
 procedure RescalePPMdContext(self: PPPMdContext; model: PPPMdCoreModel);
 var
+  n0, n1: cint;
   tmp: TPPMdState;
   states: PPPMdState;
-  n0, n1, numzeros: cint = 1;
+  numzeros: cint = 1;
   i, j, n, escfreq, adder: cint;
 begin
   states:= PPMdContextStates(self, model);
@@ -331,7 +418,7 @@ begin
   // Drop states whose frequency has fallen to 0
   if (states[n - 1].Freq = 0) then
   begin
-  	while (numzeros < n) and (states[n - 1 - numzeros].Freq = 0) then Inc(numzeros);
+  	while (numzeros < n) and (states[n - 1 - numzeros].Freq = 0) do Inc(numzeros);
 
   	escfreq += numzeros;
 
@@ -351,12 +438,12 @@ begin
   		Exit;
   	end;
 
-  	n0:= (n + 1) shr 1, n1:= (self^.LastStateIndex + 2) shr 1;
+  	n0:= (n + 1) shr 1;
+        n1:= (self^.LastStateIndex + 2) shr 1;
   	if (n0 <> n1) then self^.States:= ShrinkUnits(model^.alloc, self^.States, n0, n1);
   end;
 
   self^.SummFreq += (escfreq + 1) shr 1;
-  end;
 
   // The found state is the first one to breach the limit, thus it is the largest and also first
   model^.FoundState:= PPMdContextStates(self, model);
