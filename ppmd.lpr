@@ -7,7 +7,7 @@ uses
   cthreads,
   {$ENDIF}{$ENDIF}
   Classes, CarrylessRangeCoder, PPMdContext, PPMdSubAllocator,
-PPMdSubAllocatorVariantI
+PPMdSubAllocatorVariantI, PPMdVariantI
   { you can add units after this };
 
 begin
