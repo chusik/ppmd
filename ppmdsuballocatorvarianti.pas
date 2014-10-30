@@ -57,7 +57,6 @@ procedure InsertBlockAfter(self: PPPMdMemoryBlockVariantI; pv: Pointer; NU: cint
 
 function I2B(self: PPPMdSubAllocatorVariantI; index: cint): cuint; forward;
 procedure SplitBlock(self: PPPMdSubAllocatorVariantI; pv: Pointer; oldindex: cint; newindex: cint); forward;
-//function GetUsedMemory(self: PPPMdSubAllocatorVariantI): cuint32; forward;
 
 procedure InitVariantI(self: PPPMdSubAllocatorVariantI); forward;
 function AllocContextVariantI(self: PPPMdSubAllocatorVariantI): cuint32; forward;
@@ -206,15 +205,34 @@ begin
   offs:= AllocUnitsVariantI(self, oldnum + 1);
   if (offs <> 0) then
   begin
-    // !!!memcpy(_OffsetToPointer(self, offs), oldptr, oldnum * UNIT_SIZE);
+    Move(oldptr^, _OffsetToPointer(self, offs)^, oldnum * UNIT_SIZE);
     InsertBlockAfter(@self^.BList[oldindex], oldptr, oldnum, self);
   end;
   Result:= offs;
 end;
 
 function ShrinkUnitsVariantI(self: PPPMdSubAllocatorVariantI; oldoffs: cuint32; oldnum: cint; newnum: cint): cuint32;
+var
+  ptr, oldptr: Pointer;
+  oldindex, newindex: cint;
 begin
+  oldptr:= _OffsetToPointer(self, oldoffs);
+  oldindex:= self^.Units2Index[oldnum - 1];
+  newindex:= self^.Units2Index[newnum - 1];
+  if (oldindex = newindex) then Exit(oldoffs);
 
+  if (AreBlocksAvailable(@self^.BList[newindex])) then
+  begin
+    ptr:= RemoveBlockAfter(@self^.BList[newindex], self);
+    Move(oldptr^, ptr^, newnum * UNIT_SIZE);
+    InsertBlockAfter(@self^.BList[oldindex], oldptr, self^.Index2Units[oldindex], self);
+    Result:= _PointerToOffset(self, ptr);
+  end
+  else
+  begin
+    SplitBlock(self, oldptr, oldindex, newindex);
+    Result:= oldoffs;
+  end;
 end;
 
 procedure FreeUnitsVariantI(self: PPPMdSubAllocatorVariantI; offs: cuint32; num: cint);
@@ -252,13 +270,58 @@ end;
 
 function MoveUnitsUpVariantI(self: PPPMdSubAllocatorVariantI; oldoffs: cuint32;
   num: cint): cuint32;
+var
+  newnum, index: cint;
+  ptr, oldptr: Pointer;
 begin
+  oldptr:= _OffsetToPointer(self, oldoffs);
+  index:= self^.Units2Index[num - 1];
 
+  if (pcuint8(oldptr) > self^.UnitsStart + 16 * 1024) or (oldoffs > self^.BList[index].next) then Exit(oldoffs);
+
+  ptr:= RemoveBlockAfter(@self^.BList[index], self);
+  Move(oldptr^, ptr^, num * UNIT_SIZE);
+
+  newnum:= self^.Index2Units[index];
+  if(pcuint8(oldptr) <> self^.UnitsStart) then InsertBlockAfter(@self^.BList[index], oldptr, newnum, self)
+  else self^.UnitsStart += newnum * UNIT_SIZE;
+
+  Result:= _PointerToOffset(self, ptr);
 end;
 
 procedure ExpandTextAreaVariantI(self: PPPMdSubAllocatorVariantI);
+var
+  i: cint;
+  p, pm: PPPMdMemoryBlockVariantI;
+  Count: array[0..N_INDEXES - 1] of cuint;
 begin
+  FillChar(Count, sizeof(Count), 0);
 
+  p:= PPPMdMemoryBlockVariantI(self^.UnitsStart);
+  while (p^.Stamp = $ffffffff) do
+  begin
+    pm:= p;
+    self^.UnitsStart:= pcuint8(pm + pm^.NU);
+    Inc(Count[self^.Units2Index[pm^.NU - 1]]);
+    pm^.Stamp:= 0;
+    p:= PPPMdMemoryBlockVariantI(self^.UnitsStart);
+  end;
+
+  for i:= 0 to N_INDEXES - 1 do
+  begin
+    p:= @self^.BList[i];
+    while Count[i] <> 0 do
+    begin
+      while (NextBlock(p,self)^.Stamp <> 0) do
+      begin
+  	UnlinkBlockAfter(p, self);
+  	Dec(self^.BList[i].Stamp);
+        Dec(Count[i]);
+  	if (Count[i] <> 0) then break;
+      end;
+      p:= NextBlock(p, self)
+    end;
+  end;
 end;
 
 procedure GlueFreeBlocks(self: PPPMdSubAllocatorVariantI);
