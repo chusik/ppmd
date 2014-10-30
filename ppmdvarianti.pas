@@ -15,6 +15,9 @@ const
   MRM_CUT_OFF = 1;
   MRM_FREEZE = 2;
 
+  UP_FREQ = 5;
+  O_BOUND = 9;
+
 type
   PPPMdModelVariantI = ^TPPMdModelVariantI;
   TPPMdModelVariantI = record
@@ -44,13 +47,26 @@ implementation
 
 function CreatePPMdModelVariantI(input: PInStream; suballocsize: cint;
   maxorder: cint; restoration: cint): PPPMdModelVariantI; cdecl;
+var
+  self: PPPMdModelVariantI;
+  alloc: PPPMdSubAllocatorVariantI;
 begin
-
+  self:= GetMem(sizeof(TPPMdModelVariantI));
+  if (self = nil) then Exit(nil);
+  alloc:= CreateSubAllocatorVariantI(suballocsize);
+  if (alloc = nil) then
+  begin
+    FreeMem(self);
+    Exit(nil);
+  end;
+  StartPPMdModelVariantI(self, input, alloc, maxorder, restoration);
+  Result:= self;
 end;
 
 procedure FreePPMdModelVariantI(self: PPPMdModelVariantI); cdecl;
 begin
-
+  FreeMem(self^.alloc);
+  FreeMem(self);
 end;
 
 procedure StartPPMdModelVariantI(self: PPPMdModelVariantI; input: PInStream;
