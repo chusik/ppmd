@@ -218,19 +218,36 @@ begin
 end;
 
 procedure FreeUnitsVariantI(self: PPPMdSubAllocatorVariantI; offs: cuint32; num: cint);
+var
+  index: cint;
 begin
-
+  index:= self^.Units2Index[num - 1];
+  InsertBlockAfter(@self^.BList[index], _OffsetToPointer(self, offs), self^.Index2Units[index], self);
 end;
 
 function GetUsedMemoryVariantI(self: PPPMdSubAllocatorVariantI): cuint32;
+var
+  i: cint;
+  size: cuint32;
 begin
+  size:= self^.SubAllocatorSize - (self^.HighUnit - self^.LowUnit) - (self^.UnitsStart - self^.pText);
 
+  for i:= 0 to N_INDEXES - 1 do size -= UNIT_SIZE * self^.Index2Units[i] * self^.BList[i].Stamp;
+
+  Result:= size;
 end;
 
-procedure SpecialFreeUnitVariantI(self: PPPMdSubAllocatorVariantI; offs: cuint32
-  );
+procedure SpecialFreeUnitVariantI(self: PPPMdSubAllocatorVariantI; offs: cuint32);
+var
+  ptr: Pointer;
 begin
-
+  ptr:= _OffsetToPointer(self, offs);
+  if (pcuint8_t(ptr) = self^.UnitsStart) then
+  begin
+    pcuint32(ptr)^:= $ffffffff;
+    self^.UnitsStart += UNIT_SIZE;
+  end
+  else InsertBlockAfter(@self^.BList[0], ptr, 1, self);
 end;
 
 function MoveUnitsUpVariantI(self: PPPMdSubAllocatorVariantI; oldoffs: cuint32;
@@ -251,47 +268,74 @@ end;
 
 function NextBlock(self: PPPMdMemoryBlockVariantI; alloc: PPPMdSubAllocatorVariantI): PPPMdMemoryBlockVariantI;
 begin
-
+  Result:= OffsetToPointer(@alloc^.core, self^.next);
 end;
 
 procedure SetNextBlock(self: PPPMdMemoryBlockVariantI; newnext: PPPMdMemoryBlockVariantI; alloc: PPPMdSubAllocatorVariantI);
 begin
-
+  self^.next:= PointerToOffset(@alloc^.core, newnext);
 end;
 
 function AreBlocksAvailable(self: PPPMdMemoryBlockVariantI): cbool;
 begin
-
+  Result:= self^.next <> 0;
 end;
 
 procedure LinkBlockAfter(self: PPPMdMemoryBlockVariantI; p: PPPMdMemoryBlockVariantI; alloc: PPPMdSubAllocatorVariantI);
 begin
-
+  SetNextBlock(p, NextBlock(self, alloc), alloc);
+  SetNextBlock(self, p, alloc);
 end;
 
 procedure UnlinkBlockAfter(self: PPPMdMemoryBlockVariantI; alloc: PPPMdSubAllocatorVariantI);
 begin
-
+  SetNextBlock(self, NextBlock(NextBlock(self, alloc), alloc), alloc);
 end;
 
 function RemoveBlockAfter(self: PPPMdMemoryBlockVariantI; alloc: PPPMdSubAllocatorVariantI): Pointer;
+var
+  p: PPPMdMemoryBlockVariantI;
 begin
-
+  p:= NextBlock(self, alloc);
+  UnlinkBlockAfter(self, alloc);
+  Dec(self^.Stamp);
+  Result:= p;
 end;
 
 procedure InsertBlockAfter(self: PPPMdMemoryBlockVariantI; pv: Pointer; NU: cint; alloc: PPPMdSubAllocatorVariantI);
+var
+  p: PPPMdMemoryBlockVariantI;
 begin
-
+  p:= PPPMdMemoryBlockVariantI(pv);
+  LinkBlockAfter(self, p, alloc);
+  p^.Stamp:= $ffffffff;
+  p^.NU:= NU;
+  Inc(self^.Stamp);
 end;
 
 function I2B(self: PPPMdSubAllocatorVariantI; index: cint): cuint;
 begin
-
+  Result:= UNIT_SIZE * self^.Index2Units[index];
 end;
 
 procedure SplitBlock(self: PPPMdSubAllocatorVariantI; pv: Pointer; oldindex: cint; newindex: cint);
+var
+  p: pcuint8;
+  i, k, diff: cint;
 begin
+  p:= pcuint8(pv) + I2B(self, newindex);
 
+  diff:= self^.Index2Units[oldindex] - self^.Index2Units[newindex];
+  i:= self^.Units2Index[diff - 1];
+  if (self^.Index2Units[i] <> diff) then
+  begin
+    Dec(i);
+    k:= self^.Index2Units[i];
+    InsertBlockAfter(@self^.BList[i], p, k, self);
+    p += k * UNIT_SIZE;
+    diff -= k;
+  end;
+  InsertBlockAfter(@self^.BList[self^.Units2Index[diff - 1]], p, diff, self);
 end;
 
 end.
