@@ -242,7 +242,7 @@ var
   ptr: Pointer;
 begin
   ptr:= _OffsetToPointer(self, offs);
-  if (pcuint8_t(ptr) = self^.UnitsStart) then
+  if (pcuint8(ptr) = self^.UnitsStart) then
   begin
     pcuint32(ptr)^:= $ffffffff;
     self^.UnitsStart += UNIT_SIZE;
@@ -262,8 +262,56 @@ begin
 end;
 
 procedure GlueFreeBlocks(self: PPPMdSubAllocatorVariantI);
+var
+  i, k, sz: cint;
+  s0: TPPMdMemoryBlockVariantI;
+  p, p0, p1: PPPMdMemoryBlockVariantI;
 begin
+  if (self^.LowUnit <> self^.HighUnit) then self^.LowUnit^:= 0;
 
+  p0:= @s0;
+  s0.next:= 0;
+  for i:= 0 to N_INDEXES - 1 do
+  begin
+    while (AreBlocksAvailable(@self^.BList[i])) do
+    begin
+      p:= PPPMdMemoryBlockVariantI(RemoveBlockAfter(@self^.BList[i], self));
+      if (p^.NU <> 0) then continue;
+      p1:= p + p^.NU;
+      while (p1^.Stamp = $ffffffff) do
+      begin
+  	p^.NU += p1^.NU;
+  	p1^.NU:= 0;
+        p1:= p + p^.NU;
+      end;
+      LinkBlockAfter(p0, p, self);
+      p0:= p;
+    end;
+  end;
+
+  while (AreBlocksAvailable(@s0)) do
+  begin
+    p:= RemoveBlockAfter(@s0, self);
+    sz:= p^.NU;
+    if (sz <> 0) then continue;
+
+    while (sz > 128) do
+    begin
+      InsertBlockAfter(@self^.BList[N_INDEXES - 1], p, 128, self);
+      sz -= 128;
+      p += 128;
+    end;
+
+    i:= self^.Units2Index[sz - 1];
+    if (self^.Index2Units[i] <> sz) then
+    begin
+      Dec(i);
+      k:= sz - self^.Index2Units[i];
+      InsertBlockAfter(@self^.BList[k - 1], p + (sz - k), k, self);
+    end;
+    InsertBlockAfter(@self^.BList[i], p, self^.Index2Units[i], self);
+  end;
+  self^.GlueCount:= 1 shl 13;
 end;
 
 function NextBlock(self: PPPMdMemoryBlockVariantI; alloc: PPPMdSubAllocatorVariantI): PPPMdMemoryBlockVariantI;
