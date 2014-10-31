@@ -48,7 +48,7 @@ implementation
 procedure RestartModel(self: PPPMdModelVariantI); forward;
 
 procedure UpdateModel(self: PPPMdModelVariantI; mincontext: PPPMdContext); forward;
-function CreateSuccessors(self: PPPMdModelVariantI; skip: cbool; p1: PPPMdState; mincontext: PPPMdContext): PPPMdContext; forward;
+function CreateSuccessors(self: PPPMdModelVariantI; skip: cbool; state: PPPMdState; context: PPPMdContext): PPPMdContext; forward;
 function ReduceOrder(self: PPPMdModelVariantI; state: PPPMdState; startcontext: PPPMdContext): PPPMdContext; forward;
 procedure RestoreModel(self: PPPMdModelVariantI; currcontext, mincontext, FSuccessor: PPPMdContext); forward;
 
@@ -237,7 +237,8 @@ label
 var
   flag: cuint8;
   fs: TPPMdState;
-  states: cuint32;
+  states1: cuint32;
+  states: PPPMdState;
   minnum, s0, currnum: cint;
   cf, sf, freq: cuint;
   currstates, new: PPPMdState;
@@ -248,7 +249,7 @@ begin
 	fs:= self^.core.FoundState^;
 	currcontext:= self^.MaxContext;
 
-	if (fs.Freq < MAX_FREQ div 4) and (mincontext^.Suffix) then
+	if (fs.Freq < MAX_FREQ div 4) and (mincontext^.Suffix <> 0) then
 	begin
 		context:= PPMdContextSuffix(mincontext, @self^.core);
 		if (context^.LastStateIndex <> 0) then
@@ -269,10 +270,10 @@ begin
 
 			if (state^.Freq < MAX_FREQ - 9) then
 			begin
-				state^.Freq + =2;
-				context^.SummFreq + =2;
+				state^.Freq += 2;
+				context^.SummFreq += 2;
 			end;
-		end;
+		end
 		else
 		begin
 			state:= PPMdContextOneState(context);
@@ -280,7 +281,7 @@ begin
 		end;
 	end;
 
-	if (self^.core.OrderFall = 0) and (fs.Successor) then
+	if (self^.core.OrderFall = 0) and (fs.Successor <> 0) then
 	begin
 		newsuccessor:= CreateSuccessors(self, true, state, mincontext);
 		SetPPMdStateSuccessorPointer(self^.core.FoundState, newsuccessor, @self^.core);
@@ -294,7 +295,7 @@ begin
 
 	if (self^.alloc^.pText >= self^.alloc^.UnitsStart) then goto RESTART_MODEL;
 
-	if (fs.Successor <> nil) then
+	if (fs.Successor <> 0) then
 	begin
 		if pcuint8(PPMdStateSuccessor(@fs, @self^.core)) < self^.alloc^.UnitsStart then
 		begin
@@ -306,7 +307,7 @@ begin
 		SetPPMdStateSuccessorPointer(@fs, ReduceOrder(self, state, mincontext), @self^.core);
 	end;
 
-	if (fs.Successor = nil) then goto RESTART_MODEL;
+	if (fs.Successor = 0) then goto RESTART_MODEL;
 
         Dec(self^.core.OrderFall);
         if (self^.core.OrderFall = 0) then
@@ -332,20 +333,20 @@ begin
 		begin
 			if ((currnum and 1) = 0) then
 			begin
-				states:= ExpandUnits(self^.core.alloc, currcontext^.States, currnum shr 1);
-				if (states = 0) then goto RESTART_MODEL;
-				currcontext^.States:= states;
+				states1:= ExpandUnits(self^.core.alloc, currcontext^.States, currnum shr 1);
+				if (states1 = 0) then goto RESTART_MODEL;
+				currcontext^.States:= states1;
 			end;
 			if (3 * currnum - 1 < minnum) then Inc(currcontext^.SummFreq);
 		end
 		else
 		begin
-			PPMdState *states=OffsetToPointer(self^.core.alloc,AllocUnits(self^.core.alloc,1));
+			states:= OffsetToPointer(self^.core.alloc,AllocUnits(self^.core.alloc, 1));
 			if (states = nil) then goto RESTART_MODEL;
 			states[0]:= PPMdContextOneState(currcontext)^;
 			SetPPMdContextStatesPointer(currcontext, states, @self^.core);
 
-			if (states[0].Freq < MAX_FREQ div 4 - 1) then states[0].Freq *= 2;
+			if (states[0].Freq < MAX_FREQ div 4 - 1) then states[0].Freq *= 2
 			else states[0].Freq:= MAX_FREQ - 4;
 
 			currcontext^.SummFreq:= states[0].Freq + self^.core.InitEsc + IfThen(minnum > 3, 1, 0);
@@ -357,16 +358,16 @@ begin
 
 		if (cf < 6 * sf) then
 		begin
-			if (cf >= 4 * sf) then freq:= 3;
-			else if (cf > sf) then freq:= 2;
+			if (cf >= 4 * sf) then freq:= 3
+			else if (cf > sf) then freq:= 2
 			else freq:= 1;
 			currcontext^.SummFreq += 4;
 		end
 		else
 		begin
-			if (cf > 15 * sf) then freq:= 7;
-			else if (cf > 12 * sf) then freq:= 6;
-			else if (cf > 9 * sf) then freq:= 5;
+			if (cf > 15 * sf) then freq:= 7
+			else if (cf > 12 * sf) then freq:= 6
+			else if (cf > 9 * sf) then freq:= 5
 			else freq:= 4;
 			currcontext^.SummFreq += freq;
 		end;
@@ -389,9 +390,112 @@ begin
 	RestoreModel(self, currcontext, mincontext, PPMdStateSuccessor(@fs, @self^.core));
 end;
 
-function CreateSuccessors(self: PPPMdModelVariantI; skip: cbool; p1: PPPMdState; mincontext: PPPMdContext): PPPMdContext;
+function CreateSuccessors(self: PPPMdModelVariantI; skip: cbool; state: PPPMdState; context: PPPMdContext): PPPMdContext;
+label
+  skip_label;
+var
+  i, cf, s0: cint;
+  n: cint = 0;
+  upbranch, newcontext: PPPMdContext;
+  statelist: array[0..MAX_O - 1] of PPPMdState;
+  onestate: PPPMdState;
+  ct: TPPMdContext;
+  newsym, sym: cuint8;
 begin
+  upbranch:= PPMdStateSuccessor(self^.core.FoundState, @self^.core);
+  sym:= self^.core.FoundState^.Symbol;
 
+  if (not skip) then
+  begin
+    statelist[n]:= self^.core.FoundState;
+    Inc(n);
+    if (context^.Suffix = 0) then goto skip_label;
+  end;
+
+  if Assigned(state) then
+  begin
+    context:= PPMdContextSuffix(context, @self^.core);
+    if (PPMdStateSuccessor(state, @self^.core) <> upbranch) then
+    begin
+      context:= PPMdStateSuccessor(state, @self^.core);
+      goto skip_label;
+    end;
+    statelist[n]:= state; Inc(n);
+    if  (context^.Suffix = 0) then goto skip_label;
+  end;
+
+  repeat
+    context:= PPMdContextSuffix(context, @self^.core);
+    if (context^.LastStateIndex <> 0) then
+    begin
+      state:= PPMdContextStates(context, @self^.core);
+      while (state^.Symbol <> sym) do Inc(state);
+
+      if (state^.Freq < MAX_FREQ - 9) then
+      begin
+	      Inc(state^.Freq);
+	      Inc(context^.SummFreq);
+      end;
+    end
+    else
+    begin
+      state:= PPMdContextOneState(context);
+    //	state^.Freq += cuint8((not PPMdContextSuffix(context, @self^.core)^.LastStateIndex) and (state^.Freq < 24));
+    end;
+
+    if (PPMdStateSuccessor(state, @self^.core) <> upbranch) then
+    begin
+      context:= PPMdStateSuccessor(state, @self^.core);
+      break;
+    end;
+    statelist[n]:= state; Inc(n);
+  until not (context^.Suffix <> 0);
+
+  skip_label:
+
+  if (n = 0) then Exit(context);
+
+  newsym:= pcuint8(upbranch)^;
+
+  ct.LastStateIndex:= 0;
+  ct.Flags:= 0;
+  if (sym >= $40) then ct.Flags:= ct.Flags or $10;
+  if (newsym >= $40) then ct.Flags:= ct.Flags or $08;
+
+  onestate:= PPMdContextOneState(@ct);
+  onestate^.Symbol:= newsym;
+  SetPPMdStateSuccessorPointer(onestate, PPPMdContext(pcuint8(upbranch) + 1), @self^.core);
+
+  if (context^.LastStateIndex <> 0) then
+  begin
+    state:= PPMdContextStates(context, @self^.core);
+    while (state^.Symbol <> newsym) do Inc(state);
+
+    cf:= state^.Freq - 1;
+    s0:= context^.SummFreq - context^.LastStateIndex - cf;
+
+    if (2 * cf <= s0) then
+    begin
+	    if (5 * cf > s0) then onestate^.Freq:= 2
+	    else onestate^.Freq:= 1;
+    end
+    else onestate^.Freq:= 1 + ((cf + 2 * s0 - 3) div s0);
+  end
+  else onestate^.Freq:= PPMdContextOneState(context)^.Freq;
+
+  for i:= n - 1 downto 0 do
+  begin
+    newcontext:= PPPMdContext(OffsetToPointer(self^.core.alloc,AllocContext(self^.core.alloc)));
+    if (newcontext = nil) then Exit(nil);
+
+    Move(ct, newcontext^, 8);
+    SetPPMdContextSuffixPointer(newcontext, context, @self^.core);
+    SetPPMdStateSuccessorPointer(statelist[i], newcontext, @self^.core);
+
+    context:= newcontext;
+  end;
+
+  Result:= context;
 end;
 
 function ReduceOrder(self: PPPMdModelVariantI; state: PPPMdState; startcontext: PPPMdContext): PPPMdContext;
