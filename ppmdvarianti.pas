@@ -8,7 +8,7 @@ interface
 
 uses
   Classes, SysUtils, CTypes, PPMdContext, PPMdSubAllocatorVariantI,
-  CarrylessRangeCoder;
+  CarrylessRangeCoder, PPMdSubAllocator, Math;
 
 const
   MRM_RESTART = 0;
@@ -118,7 +118,7 @@ begin
 
   self^.NS2BSIndx[0]:= 2 * 0;
   self^.NS2BSIndx[1]:= 2 * 1;
-  for i:=2 to 11 - 1 do self^.NS2BSIndx[i]:= 2 * 2;
+  for i:= 2 to 11 - 1 do self^.NS2BSIndx[i]:= 2 * 2;
   for i:= 11 to 256 - 1 do self^.NS2BSIndx[i]:= 2 * 3;
 
   for i:= 0 to UP_FREQ - 1 do self^.QTable[i]:= i;
@@ -144,8 +144,53 @@ begin
 end;
 
 procedure RestartModel(self: PPPMdModelVariantI);
+const
+  InitBinEsc: array[0..7] of cuint16 = ($3cdd,$1f3f,$59bf,$48f3,$64a1,$5abc,$6632,$6051);
+var
+  i, k, m: cint;
+  maxstates: PPPMdState;
 begin
+  InitSubAllocator(self^.core.alloc);
 
+  FillChar(self^.core.CharMask, sizeof(self^.core.CharMask), 0);
+
+  self^.core.PrevSuccess:= 0;
+  self^.core.OrderFall:= self^.MaxOrder;
+  self^.core.InitRL:= -IfThen((self^.MaxOrder < 12), self^.MaxOrder, 12) - 1;
+  self^.core.RunLength:= self^.core.InitRL;
+
+  self^.MaxContext:= NewPPMdContext(@self^.core);
+  self^.MaxContext^.LastStateIndex:= 255;
+  self^.MaxContext^.SummFreq:= 257;
+  self^.MaxContext^.States:= AllocUnits(self^.core.alloc, 256 div 2);
+
+  maxstates:= PPMdContextStates(self^.MaxContext, @self^.core);
+  for i:= 0 to 256 - 1 do
+  begin
+    maxstates[i].Symbol:= i;
+    maxstates[i].Freq:= 1;
+    maxstates[i].Successor:= 0;
+  end;
+
+  i:= 0;
+  for m:= 0 to 25 - 1 do
+  begin
+    while (self^.QTable[i] = m) do Inc(i);
+    for k:= 0 to 8 - 1 do self^.BinSumm[m, k]:= BIN_SCALE - InitBinEsc[k] div (i + 1);
+    k:= 8;
+    while (k < 64) do
+    begin
+     Move((@self^.BinSumm[m, 0])^, (@self^.BinSumm[m, k])^, 8 * sizeof(cuint16));
+     k += 8;
+   end;
+  end;
+
+  i:= 0;
+  for m:= 0 to 24 - 1 do
+  begin
+    while (self^.QTable[i + 3] = m + 3) do Inc(i);
+    for k:= 0 to 32 - 1 do self^.SEE2Cont[m, k]:= MakeSEE2(2 * i + 5, 7);
+  end;
 end;
 
 function NextPPMdVariantIByte(self: PPPMdModelVariantI): cint; cdecl;
