@@ -88,8 +88,59 @@ end;
 
 procedure StartPPMdModelVariantI(self: PPPMdModelVariantI; input: PInStream;
   alloc: PPPMdSubAllocatorVariantI; maxorder: cint; restoration: cint); cdecl;
+var
+  pc: PPPMdContext;
+  i, m, k, step: cint;
 begin
+  InitializeRangeCoder(@self^.core.coder, input, true, $8000);
 
+  if (maxorder < 2) then // TODO: solid mode
+  begin
+    FillChar(self^.core.CharMask, sizeof(self^.core.CharMask), 0);
+    self^.core.OrderFall:= self^.MaxOrder;
+    pc:= self^.MaxContext;
+    while (pc^.Suffix <> 0) do
+    begin
+      Dec(self^.core.OrderFall);
+      pc:= PPMdContextSuffix(pc, @self^.core)
+    end;
+    Exit;
+  end;
+
+  self^.alloc:= alloc;
+  self^.core.alloc:= @alloc^.core;
+
+  Pointer(self^.core.RescalePPMdContext):= @RescalePPMdContextVariantI;
+
+  self^.MaxOrder:= maxorder;
+  self^.MRMethod:= restoration;
+  self^.core.EscCount:= 1;
+
+  self^.NS2BSIndx[0]:= 2 * 0;
+  self^.NS2BSIndx[1]:= 2 * 1;
+  for i:=2 to 11 - 1 do self^.NS2BSIndx[i]:= 2 * 2;
+  for i:= 11 to 256 - 1 do self^.NS2BSIndx[i]:= 2 * 3;
+
+  for i:= 0 to UP_FREQ - 1 do self^.QTable[i]:= i;
+  m:= UP_FREQ;
+  k:= 1;
+  step:= 1;
+  for i:= UP_FREQ to 260 - 1 do
+  begin
+    self^.QTable[i]:= m;
+    Dec(k);
+    if (k <> 0) then
+    begin
+      Inc(m); Inc(step); k:= step;
+    end;
+  end;
+
+  self^.DummySEE2Cont.Summ:= $af8f;
+  //self^.DummySEE2Cont.Shift:= $ac;
+  self^.DummySEE2Cont.Count:= $84;
+  self^.DummySEE2Cont.Shift:= PERIOD_BITS;
+
+  RestartModel(self);
 end;
 
 procedure RestartModel(self: PPPMdModelVariantI);
@@ -138,13 +189,22 @@ begin
 end;
 
 procedure DecodeBinSymbolVariantI(self: PPPMdContext; model: PPPMdModelVariantI);
+var
+  bs: pcuint16;
+  index: cuint8;
+  rs: PPPMdState;
 begin
+  rs:= PPMdContextOneState(self);
 
+  index:= model^.NS2BSIndx[PPMdContextSuffix(self, @model^.core)^.LastStateIndex] + model^.core.PrevSuccess + self^.Flags;
+  bs:= @model^.BinSumm[model^.QTable[rs^.Freq - 1], index + ((model^.core.RunLength shr 26) and $20)];
+
+  PPMdDecodeBinSymbol(self, @model^.core, bs, 196, false);
 end;
 
 procedure DecodeSymbol1VariantI(self: PPPMdContext; model: PPPMdModelVariantI);
 begin
-
+  PPMdDecodeSymbol1(self, @model^.core, true);
 end;
 
 procedure DecodeSymbol2VariantI(self: PPPMdContext; model: PPPMdModelVariantI);
