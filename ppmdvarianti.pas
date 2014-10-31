@@ -790,8 +790,51 @@ begin
 end;
 
 function RemoveBinConts(self: PPPMdContext; order: cint; model: PPPMdModelVariantI): PPPMdContext;
+var
+  i: cint;
+  suffix: PPPMdContext;
+  state, states: PPPMdState;
 begin
+  if (self^.LastStateIndex = 0) then
+  begin
+    state:= PPMdContextOneState(self);
+    if (pcuint8(PPMdStateSuccessor(state, @model^.core)) >= model^.alloc^.UnitsStart) and (order < model^.MaxOrder) then
+    begin
+      //PrefetchData(onestate^.Successor);
+      SetPPMdStateSuccessorPointer(state,
+      RemoveBinConts(PPMdStateSuccessor(state, @model^.core), order + 1, model),
+      @model^.core);
+    end
+    else state^.Successor:= 0;
 
+    if (state^.Successor = 0) then
+    begin
+      suffix:= PPMdContextSuffix(self, @model^.core);
+      if (suffix^.LastStateIndex = 0) or (suffix^.Flags = $ff) then
+      begin
+  	FreeUnits(model^.core.alloc, PointerToOffset(model^.core.alloc, self), 1);
+  	Exit(nil);
+      end
+    end;
+
+    Exit(self);
+  end;
+  //PrefetchData(self^.States);
+
+  states:= PPMdContextStates(self, @model^.core);
+  for i:= self^.LastStateIndex downto 0 do
+  begin
+    if (pcuint8(PPMdStateSuccessor(@states[i], @model^.core)) >= model^.alloc^.UnitsStart) and (order < model^.MaxOrder) then
+    begin
+      //PrefetchData(states[i].Successor);
+      SetPPMdStateSuccessorPointer(@states[i],
+      RemoveBinConts(PPMdStateSuccessor(@states[i], @model^.core), order + 1, model),
+      @model^.core);
+    end
+    else states[i].Successor:= 0;
+  end;
+
+  Result:= self;
 end;
 
 procedure DecodeBinSymbolVariantI(self: PPPMdContext; model: PPPMdModelVariantI);
