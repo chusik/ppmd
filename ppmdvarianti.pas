@@ -600,8 +600,81 @@ begin
 end;
 
 procedure RestoreModel(self: PPPMdModelVariantI; currcontext, mincontext, FSuccessor: PPPMdContext);
+var
+  state: TPPMdState;
+  context: PPPMdContext;
 begin
+  self^.alloc^.pText:= @self^.alloc^.HeapStart[0];
 
+  context:= self^.MaxContext;
+  while (context <> currcontext) do
+  begin
+    if (context^.LastStateIndex = 1) then
+    begin
+      state:= PPMdContextStates(context, @self^.core)^;
+      SpecialFreeUnitVariantI(self^.alloc, context^.States);
+
+      state.Freq:= (state.Freq + 11) shr 3;
+      PPMdContextOneState(context)^:= state;
+
+      context^.LastStateIndex:= 0;
+      context^.Flags:= context^.Flags and $10;
+      if (state.Symbol >= $40) then context^.Flags += $08;
+    end
+    else
+    begin
+      ShrinkContext(context, context^.LastStateIndex - 1, false, self);
+    end;
+
+    context:= PPMdContextSuffix(context, @self^.core);
+  end;
+
+  while (context <> mincontext) do
+  begin
+    if (context^.LastStateIndex = 0) then
+    begin
+      PPMdContextOneState(context)^.Freq:= (PPMdContextOneState(context)^.Freq + 1) shr 1;
+    end
+    else
+    begin
+      context^.SummFreq += 4;
+      if (context^.SummFreq > 128 + 4 * context^.LastStateIndex) then
+        ShrinkContext(context, context^.LastStateIndex, true, self);
+    end;
+
+    context:= PPMdContextSuffix(context, @self^.core);
+  end;
+
+  if (self^.MRMethod > MRM_FREEZE) then
+  begin
+    self^.MaxContext:= FSuccessor;
+    if ((self^.alloc^.BList[1].Stamp and 1) = 0) then Inc(self^.alloc^.GlueCount);
+  end
+  else if (self^.MRMethod = MRM_FREEZE) then
+  begin
+    while (self^.MaxContext^.Suffix <> 0) do self^.MaxContext:= PPMdContextSuffix(self^.MaxContext, @self^.core);
+
+    RemoveBinConts(self^.MaxContext, 0, self);
+    self^.MRMethod:= self^.MRMethod + 1;
+    self^.alloc^.GlueCount:= 0;
+    self^.core.OrderFall:= self^.MaxOrder;
+  end
+  else if (self^.MRMethod = MRM_RESTART) or (GetUsedMemoryVariantI(self^.alloc) < (self^.alloc^.SubAllocatorSize shr 1)) then
+  begin
+    RestartModel(self);
+    self^.core.EscCount:= 0;
+  end
+  else
+  begin
+    while (self^.MaxContext^.Suffix <> 0) do self^.MaxContext:= PPMdContextSuffix(self^.MaxContext, @self^.core);
+    repeat
+      CutOffContext(self^.MaxContext, 0, self);
+      ExpandTextAreaVariantI(self^.alloc);
+    until not (GetUsedMemoryVariantI(self^.alloc) > 3 * (self^.alloc^.SubAllocatorSize shr 2));
+
+    self^.alloc^.GlueCount:= 0;
+    self^.core.OrderFall:= self^.MaxOrder;
+  end
 end;
 
 procedure ShrinkContext(self: PPPMdContext; newlastindex: cint; scale: cbool; model: PPPMdModelVariantI);
