@@ -706,8 +706,87 @@ begin
 end;
 
 function CutOffContext(self: PPPMdContext; order: cint; model: PPPMdModelVariantI): PPPMdContext;
+var
+  state: TPPMdState;
+  i, oldnum, n: cint;
+  states, onestate: PPPMdState;
 begin
+  if (self^.LastStateIndex = 0) then
+  begin
+  	onestate:= PPMdContextOneState(self);
+  	if(pcuint8(PPMdStateSuccessor(onestate, @model^.core)) >= model^.alloc^.UnitsStart) then
+  	begin
+  	  if (order < model^.MaxOrder) then
+  	  begin
+  	    //PrefetchData(p^.Successor);
+  	    SetPPMdStateSuccessorPointer(onestate,
+  	    CutOffContext(PPMdStateSuccessor(onestate, @model^.core), order + 1, model),
+            @model^.core);
+  	  end
+  	  else onestate^.Successor:= 0;
 
+  	  if (onestate^.Successor = 0) and (order > O_BOUND) then
+  	  begin
+  	    SpecialFreeUnitVariantI(model^.alloc, PointerToOffset(model^.core.alloc, self));
+  	    Exit(nil);
+  	  end;
+
+  	  Exit(self);
+  	end
+  	else
+  	begin
+  	  SpecialFreeUnitVariantI(model^.alloc,PointerToOffset(model^.core.alloc,self));
+  	  Exit(nil);
+  	end
+  end;
+  //PrefetchData(self^.States);
+
+  oldnum:= (self^.LastStateIndex + 2) shr 1;
+  self^.States:= MoveUnitsUpVariantI(model^.alloc, self^.States, oldnum);
+
+  n:= self^.LastStateIndex;
+  states:= PPMdContextStates(self, @model^.core);
+  for i:= n downto 0 do
+  begin
+  	if (pcuint8(PPMdStateSuccessor(@states[i], @model^.core)) < model^.alloc^.UnitsStart) then
+  	begin
+  	  states[i].Successor:= 0;
+  	  SWAP(states[i], states[n]);
+  	  Dec(n);
+  	end
+  	else if (order < model^.MaxOrder) then
+  	begin
+  	  //PrefetchData(state^.Successor);
+  	  SetPPMdStateSuccessorPointer(@states[i],
+  	  CutOffContext(PPMdStateSuccessor(@states[i], @model^.core), order + 1, model),
+  	  @model^.core);
+  	end
+  	else states[i].Successor:= 0;
+  end;
+
+  if (n <> self^.LastStateIndex) and (order <> 0) then
+  begin
+    if (n < 0) then
+    begin
+      FreeUnits(model^.core.alloc, self^.States, oldnum);
+      SpecialFreeUnitVariantI(model^.alloc, PointerToOffset(model^.core.alloc, self));
+      Exit(nil);
+    end
+  else if (n = 0) then
+    begin
+      state:= PPMdContextStates(self, @model^.core)^;
+      FreeUnits(model^.core.alloc, self^.States, oldnum);
+
+      state.Freq:= (state.Freq + 11) shr 3;
+      PPMdContextOneState(self)^:= state;
+
+      self^.LastStateIndex:= 0;
+      self^.Flags:= self^.Flags and $10;
+      if (state.Symbol >= $40) then self^.Flags += $08;
+    end
+    else ShrinkContext(self, n, self^.SummFreq > 16 * n, model);
+  end;
+  Result:= self;
 end;
 
 function RemoveBinConts(self: PPPMdContext; order: cint; model: PPPMdModelVariantI): PPPMdContext;
