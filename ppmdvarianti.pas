@@ -499,8 +499,101 @@ begin
 end;
 
 function ReduceOrder(self: PPPMdModelVariantI; state: PPPMdState; startcontext: PPPMdContext): PPPMdContext;
+var
+  i: cint;
+  n: cint = 0;
+  sym: cuint8;
+  context, upbranch: PPPMdContext;
+  statelist: array[0..MAX_O - 1] of PPPMdState;
 begin
+  context:= startcontext;
+  upbranch:= PPPMdContext(self^.alloc^.pText);
+  sym:= self^.core.FoundState^.Symbol;
 
+  statelist[n]:= self^.core.FoundState; Inc(n);
+  Inc(self^.core.OrderFall);
+
+  if Assigned(state) then
+  begin
+  	context:=PPMdContextSuffix(context,&self^.core);
+  	if(state^.Successor) goto skip;
+  	statelist[n++]=state;
+  	self^.core.OrderFall++;
+  end;
+
+  for(;;)
+  {
+  	if(!context^.Suffix)
+  	{
+  		if(self^.MRMethod>MRM_FREEZE)
+  		{
+  			for(i=0;i<n;i++) SetPPMdStateSuccessorPointer(statelist[i],context,&self^.core);
+  			self^.alloc^.pText=self^.alloc^.HeapStart+1;
+  			self^.core.OrderFall=1;
+  		}
+  		else
+  		{
+  			for(i=0;i<n;i++) SetPPMdStateSuccessorPointer(statelist[i],upbranch,&self^.core);
+  		}
+  		return context;
+  	}
+
+  context=PPMdContextSuffix(context,&self^.core);
+
+  	if(context^.LastStateIndex)
+  	{
+  		state=PPMdContextStates(context,&self^.core);
+  		while(state^.Symbol!=sym) state++;
+
+  		if(state^.Freq<MAX_FREQ-9)
+  		{
+  			state^.Freq+=2;
+  			context^.SummFreq+=2;
+  		}
+  	}
+  	else
+  	{
+  		state=PPMdContextOneState(context);
+  		if(state^.Freq<32) state^.Freq++;
+  	}
+
+  	if(state^.Successor) break;
+
+  	statelist[n++]=state;
+  	self^.core.OrderFall++;
+  }
+  skip:
+
+  if(self^.MRMethod>MRM_FREEZE)
+  {
+  	PPMdContext *successor=PPMdStateSuccessor(state,&self^.core);
+  	for(i=0;i<n;i++) SetPPMdStateSuccessorPointer(statelist[i],successor,&self^.core);
+
+  	self^.alloc^.pText=self^.alloc^.HeapStart+1;
+  	self^.core.OrderFall=1;
+
+  	return successor;
+  }
+  else
+  {
+  	for(i=0;i<n;i++) SetPPMdStateSuccessorPointer(statelist[i],upbranch,&self^.core);
+  }
+
+  if(PPMdStateSuccessor(state,&self^.core)<=upbranch)
+  {
+  	PPMdState *tmp=self^.core.FoundState;
+  	self^.core.FoundState=state;
+  SetPPMdStateSuccessorPointer(state,CreateSuccessors(self,false,NULL,context),&self^.core);
+  	self^.core.FoundState=tmp;
+  }
+
+  if(self^.core.OrderFall==1&&startcontext==self^.MaxContext)
+  {
+  	self^.core.FoundState^.Successor=state^.Successor;
+  	self^.alloc^.pText--;
+  }
+
+  return PPMdStateSuccessor(state,&self^.core);
 end;
 
 procedure RestoreModel(self: PPPMdModelVariantI; currcontext, mincontext, FSuccessor: PPPMdContext);
