@@ -129,7 +129,7 @@ begin
   begin
     self^.QTable[i]:= m;
     Dec(k);
-    if (k <> 0) then
+    if (k = 0) then
     begin
       Inc(m); Inc(step); k:= step;
     end;
@@ -232,8 +232,161 @@ begin
 end;
 
 procedure UpdateModel(self: PPPMdModelVariantI; mincontext: PPPMdContext);
+label
+  RESTART_MODEL;
+var
+  flag: cuint8;
+  fs: TPPMdState;
+  states: cuint32;
+  minnum, s0, currnum: cint;
+  cf, sf, freq: cuint;
+  currstates, new: PPPMdState;
+  state: PPPMdState = nil;
+  context, currcontext,
+  Successor, newsuccessor: PPPMdContext;
 begin
+	fs:= self^.core.FoundState^;
+	currcontext:= self^.MaxContext;
 
+	if (fs.Freq < MAX_FREQ div 4) and (mincontext^.Suffix) then
+	begin
+		context:= PPMdContextSuffix(mincontext, @self^.core);
+		if (context^.LastStateIndex <> 0) then
+		begin
+			state:= PPMdContextStates(context, @self^.core);
+
+			if (state^.Symbol <> fs.Symbol) then
+			begin
+				repeat Inc(state);
+				until not (state^.Symbol <> fs.Symbol);
+
+				if (state[0].Freq >= state[-1].Freq) then
+				begin
+					SWAP(state[0], state[-1]);
+					Dec(state);
+				end;
+			end;
+
+			if (state^.Freq < MAX_FREQ - 9) then
+			begin
+				state^.Freq + =2;
+				context^.SummFreq + =2;
+			end;
+		end;
+		else
+		begin
+			state:= PPMdContextOneState(context);
+			if (state^.Freq < 32) then Inc(state^.Freq);
+		end;
+	end;
+
+	if (self^.core.OrderFall = 0) and (fs.Successor) then
+	begin
+		newsuccessor:= CreateSuccessors(self, true, state, mincontext);
+		SetPPMdStateSuccessorPointer(self^.core.FoundState, newsuccessor, @self^.core);
+		if (newsuccessor = nil) then goto RESTART_MODEL;
+		self^.MaxContext:= newsuccessor;
+		Exit;
+	end;
+
+	self^.alloc^.pText^:= fs.Symbol; Inc(self^.alloc^.pText);
+	Successor:= PPPMdContext(self^.alloc^.pText);
+
+	if (self^.alloc^.pText >= self^.alloc^.UnitsStart) then goto RESTART_MODEL;
+
+	if (fs.Successor <> nil) then
+	begin
+		if pcuint8(PPMdStateSuccessor(@fs, @self^.core)) < self^.alloc^.UnitsStart then
+		begin
+			SetPPMdStateSuccessorPointer(@fs, CreateSuccessors(self, false, state, mincontext), @self^.core);
+		end;
+	end
+	else
+	begin
+		SetPPMdStateSuccessorPointer(@fs, ReduceOrder(self, state, mincontext), @self^.core);
+	end;
+
+	if (fs.Successor = nil) then goto RESTART_MODEL;
+
+        Dec(self^.core.OrderFall);
+        if (self^.core.OrderFall = 0) then
+	begin
+		Successor:= PPMdStateSuccessor(@fs, @self^.core);
+		if (self^.MaxContext <> mincontext) then Dec(self^.alloc^.pText);
+	end
+	else if (self^.MRMethod > MRM_FREEZE) then
+	begin
+		Successor:= PPMdStateSuccessor(@fs, @self^.core);
+		self^.alloc^.pText:= self^.alloc^.HeapStart;
+		self^.core.OrderFall:= 0;
+	end;
+
+	minnum:= mincontext^.LastStateIndex + 1;
+	s0:= mincontext^.SummFreq - minnum - (fs.Freq - 1);
+	flag:= IfThen(fs.Symbol >= $40, 8, 0);
+
+        while (currcontext <> mincontext) do
+	begin
+		currnum:= currcontext^.LastStateIndex + 1;
+		if (currnum <> 1) then
+		begin
+			if ((currnum and 1) = 0) then
+			begin
+				states:= ExpandUnits(self^.core.alloc, currcontext^.States, currnum shr 1);
+				if (states = 0) then goto RESTART_MODEL;
+				currcontext^.States:= states;
+			end;
+			if (3 * currnum - 1 < minnum) then Inc(currcontext^.SummFreq);
+		end
+		else
+		begin
+			PPMdState *states=OffsetToPointer(self^.core.alloc,AllocUnits(self^.core.alloc,1));
+			if (states = nil) then goto RESTART_MODEL;
+			states[0]:= PPMdContextOneState(currcontext)^;
+			SetPPMdContextStatesPointer(currcontext, states, @self^.core);
+
+			if (states[0].Freq < MAX_FREQ div 4 - 1) then states[0].Freq *= 2;
+			else states[0].Freq:= MAX_FREQ - 4;
+
+			currcontext^.SummFreq:= states[0].Freq + self^.core.InitEsc + IfThen(minnum > 3, 1, 0);
+		end;
+
+		cf:= 2 * fs.Freq * (currcontext^.SummFreq + 6);
+		sf:= s0 + currcontext^.SummFreq;
+
+
+		if (cf < 6 * sf) then
+		begin
+			if (cf >= 4 * sf) then freq:= 3;
+			else if (cf > sf) then freq:= 2;
+			else freq:= 1;
+			currcontext^.SummFreq += 4;
+		end
+		else
+		begin
+			if (cf > 15 * sf) then freq:= 7;
+			else if (cf > 12 * sf) then freq:= 6;
+			else if (cf > 9 * sf) then freq:= 5;
+			else freq:= 4;
+			currcontext^.SummFreq += freq;
+		end;
+
+		Inc(currcontext^.LastStateIndex);
+		currstates:= PPMdContextStates(currcontext, @self^.core);
+		new:= @currstates[currcontext^.LastStateIndex];
+		SetPPMdStateSuccessorPointer(new, Successor, @self^.core);
+		new^.Symbol:= fs.Symbol;
+		new^.Freq:= freq;
+		currcontext^.Flags:= currcontext^.Flags or flag;
+        currcontext:= PPMdContextSuffix(currcontext, @self^.core)
+        end;
+
+	self^.MaxContext:= PPMdStateSuccessor(@fs, @self^.core);
+
+	Exit;
+
+	RESTART_MODEL:
+	RestoreModel(self, currcontext, mincontext, PPMdStateSuccessor(@fs, @self^.core));
 end;
 
 function CreateSuccessors(self: PPPMdModelVariantI; skip: cbool; p1: PPPMdState; mincontext: PPPMdContext): PPPMdContext;
