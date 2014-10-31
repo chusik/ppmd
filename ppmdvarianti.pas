@@ -194,8 +194,41 @@ begin
 end;
 
 function NextPPMdVariantIByte(self: PPPMdModelVariantI): cint; cdecl;
+var
+  byte: cuint8;
+  mincontext: PPPMdContext;
 begin
+  mincontext:= self^.MaxContext;
 
+  if (mincontext^.LastStateIndex <> 0) then DecodeSymbol1VariantI(mincontext, self)
+  else DecodeBinSymbolVariantI(mincontext, self);
+
+  while (self^.core.FoundState <> nil) do
+  begin
+    repeat
+      Inc(self^.core.OrderFall);
+      mincontext:= PPMdContextSuffix(mincontext, @self^.core);
+      if (mincontext = nil) then Exit(-1);
+    until not (mincontext^.LastStateIndex = self^.core.LastMaskIndex);
+
+    DecodeSymbol2VariantI(mincontext, self);
+  end;
+
+  byte:= self^.core.FoundState^.Symbol;
+
+  if (self^.core.OrderFall = 0) and (pcuint8(PPMdStateSuccessor(self^.core.FoundState, @self^.core)) >= self^.alloc^.UnitsStart) then
+  begin
+    self^.MaxContext:= PPMdStateSuccessor(self^.core.FoundState, @self^.core);
+    //PrefetchData(MaxContext)
+  end
+  else
+  begin
+    UpdateModel(self, mincontext);
+    //PrefetchData(MaxContext)
+    if (self^.core.EscCount = 0) then ClearPPMdModelMask(@self^.core);
+  end;
+
+  Result:= byte;
 end;
 
 procedure UpdateModel(self: PPPMdModelVariantI; mincontext: PPPMdContext);
