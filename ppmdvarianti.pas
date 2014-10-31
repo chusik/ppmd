@@ -252,8 +252,31 @@ begin
 end;
 
 procedure ShrinkContext(self: PPPMdContext; newlastindex: cint; scale: cbool; model: PPPMdModelVariantI);
+var
+  i, escfreq: cint;
+  states: PPPMdState;
 begin
+  self^.States:= ShrinkUnits(model^.core.alloc, self^.States, (self^.LastStateIndex + 2) shr 1, (newlastindex + 2) shr 1);
+  self^.LastStateIndex:= newlastindex;
 
+  if (scale) then self^.Flags:= self^.Flags and $14
+  else self^.Flags:= self^.Flags and $10;
+
+  states:= PPMdContextStates(self, @model^.core);
+  escfreq:= self^.SummFreq;
+  self^.SummFreq:= 0;
+
+  for i:= 0 to self^.LastStateIndex do
+  begin
+    escfreq -= states[i].Freq;
+    if (scale) then states[i].Freq:= (states[i].Freq + 1) shr 1;
+    self^.SummFreq += states[i].Freq;
+    if (states[i].Symbol >= $40) then self^.Flags:= self^.Flags or $08;
+  end;
+
+  if (scale) then escfreq:= (escfreq + 1) shr 1;
+
+  self^.SummFreq += escfreq;
 end;
 
 function CutOffContext(self: PPPMdContext; order: cint; model: PPPMdModelVariantI): PPPMdContext;
