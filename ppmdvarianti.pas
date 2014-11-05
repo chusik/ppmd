@@ -857,12 +857,116 @@ begin
 end;
 
 procedure DecodeSymbol2VariantI(self: PPPMdContext; model: PPPMdModelVariantI);
+var
+  n: cint;
+  see: PSEE2Context;
 begin
+  //uint8_t *pb=(uint8_t *)PPMdContextStates(self);
+  //unsigned int t=2*self->LastStateIndex;
+  //PrefetchData(pb);
+  //PrefetchData(pb+t);
+  //PrefetchData(pb+2*t);
+  //PrefetchData(pb+3*t);
 
+  if (self^.LastStateIndex <> 255) then
+  begin
+    n:= PPMdContextSuffix(self, @model^.core)^.LastStateIndex;
+    see:= @model^.SEE2Cont[model^.QTable[self^.LastStateIndex + 2] - 3,
+  	    IfThen(self^.SummFreq > 11 * (self^.LastStateIndex + 1), 1, 0)
+  	    + IfThen(2 * self^.LastStateIndex < n + model^.core.LastMaskIndex, 2, 0)
+  	    + self^.Flags];
+    model^.core.scale:= GetSEE2Mean(see);
+  end
+  else
+  begin
+    model^.core.scale:= 1;
+    see:= @model^.DummySEE2Cont;
+  end;
+
+  PPMdDecodeSymbol2(self, @model^.core, see);
 end;
 
 procedure RescalePPMdContextVariantI(self: PPPMdContext; model: PPPMdModelVariantI);
+var
+  tmp: TPPMdState;
+  states: PPPMdState;
+  i, j, n, escfreq, adder, numzeros: cint;
 begin
+  states:= PPMdContextStates(self, @model^.core);
+  n:= self^.LastStateIndex + 1;
+
+  // Bump frequency of found state
+  model^.core.FoundState^.Freq += 4;
+
+  // Divide all frequencies and sort list
+  escfreq:= self^.SummFreq + 4;
+  adder:= IfThen((model^.core.OrderFall <> 0) or (model^.MRMethod > MRM_FREEZE), 1, 0);
+  self^.SummFreq:= 0;
+
+  for i:= 0 to n - 1 do
+  begin
+    escfreq -= states[i].Freq;
+    states[i].Freq:= (states[i].Freq + adder) shr 1;
+    self^.SummFreq += states[i].Freq;
+
+    // Keep states sorted by decreasing frequency
+    if (i > 0) and (states[i].Freq > states[i - 1].Freq) then
+    begin
+      // If not sorted, move current state upwards until list is sorted
+      tmp:= states[i];
+
+      j:= i - 1;
+      while( j > 0) and (tmp.Freq > states[j-1].Freq) do Dec(j);
+
+      Move((@states[j])^, (@states[j + 1])^, sizeof(TPPMdState) * (i - j));
+      states[j]:= tmp;
+    end;
+  end;
+
+  // TODO: add better sorting stage here.
+
+  // Drop states whose frequency has fallen to 0
+  if (states[n - 1].Freq = 0) then
+  begin
+    numzeros:= 1;
+    while (numzeros < n) and (states[n - 1 - numzeros].Freq = 0) do Inc(numzeros);
+
+    escfreq += numzeros;
+
+    self^.LastStateIndex -= numzeros;
+    if (self^.LastStateIndex = 0) then
+    begin
+      tmp:= states[0];
+
+      tmp.Freq:= (2 * tmp.Freq + escfreq - 1) div escfreq;
+      if (tmp.Freq > MAX_FREQ div 3) then tmp.Freq:= MAX_FREQ div 3;
+
+      FreeUnits(model^.core.alloc, self^.States, (n + 1) shr 1);
+      model^.core.FoundState:= PPMdContextOneState(self);
+      model^.core.FoundState^:= tmp;
+
+      self^.Flags:= (self^.Flags and $10) + $08 * cint(tmp.Symbol >= $40);
+
+      Exit;
+    end;
+
+    self^.States:= ShrinkUnits(model^.core.alloc, self^.States, (n + 1) shr 1, (self^.LastStateIndex + 2) shr 1);
+
+    // Added a scope to handle the states overload
+    begin
+      states:= PPMdContextStates(self, @model^.core);
+      self^.Flags:= self^.Flags and not $08;
+
+      for i:= 0 to self^.LastStateIndex do
+      if (states[i].Symbol >= $40) then self^.Flags:= self^.Flags or $08;
+    end
+  end;
+
+  self^.SummFreq += (escfreq + 1) shr 1;
+  self^.Flags:= self^.Flags or $04;
+
+  // The found state is the first one to breach the limit, thus it is the largest and also first
+  model^.core.FoundState:= PPMdContextStates(self, @model^.core);
 
 end;
 
