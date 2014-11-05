@@ -11,12 +11,14 @@
 #include <sys/stat.h>
 #include "PPMdVariantI.h"
 
-
+extern "C"
+{
 typedef struct 
 {
 	uint8_t (*nextByte)(InStream *self);
 	int f;
 } TInStream;
+
 
 uint8_t nextByte(InStream *self)
 {
@@ -26,10 +28,12 @@ uint8_t nextByte(InStream *self)
 
 	return value;
 }
+}
 
 int _tmain(int argc, _TCHAR* argv[])
 {
-	uint8_t b;
+        int i = 0;
+        uint8_t b;
 	int nb;
 	int ff;
 	TInStream s;
@@ -49,10 +53,16 @@ int _tmain(int argc, _TCHAR* argv[])
         (params & 0x0F) + 1,                 // model order
         params >> 12); 
 
-          while (1) {
+          while (++i) {
+          if (i >= 220)
+          {
+             i = i;
+          }
             nb = NextPPMdVariantIByte(ppmd);
             if (nb < 0) break;
+
 			b = (uint8_t)nb;
+			printf("%d\n", b);
 			_write(ff, &b, 1);
 		  };
 
