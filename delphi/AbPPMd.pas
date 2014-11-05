@@ -31,8 +31,7 @@
 
 unit AbPPMd;
 
-{//$I AbDefine.inc}
-{$mode delphi}
+{$I AbDefine.inc}
 
 interface
 
@@ -44,8 +43,8 @@ procedure DecompressPPMd(aSrc, aDes: TStream);
 implementation
 
 uses
-    SysUtils, CarrylessRangeCoder, PPMdContext, PPMdSubAllocator,
-PPMdSubAllocatorVariantI, PPMdVariantI;
+  AbCrtl,
+  SysUtils;
 
 
 // Compiled with:
@@ -56,17 +55,17 @@ PPMdSubAllocatorVariantI, PPMdVariantI;
 { Linker derectives ======================================================== }
 
 // Don't re-order these;  it will cause linker errors
-//{$IF DEFINED(WIN32)}
-//  {$L Win32\PPMdVariantI.obj}
-//  {$L Win32\PPMdContext.obj}
-//  {$L Win32\PPMdSubAllocatorVariantI.obj}
-//  {$L Win32\CarrylessRangeCoder.obj}
-//{$ELSEIF DEFINED(WIN64)}
-//  {$L Win64\PPMdVariantI.obj}
-//  {$L Win64\PPMdContext.obj}
-//  {$L Win64\PPMdSubAllocatorVariantI.obj}
-//  {$L Win64\CarrylessRangeCoder.obj}
-//{$IFEND}
+{$IF DEFINED(WIN32)}
+  {$L Win32\PPMdVariantI.obj}
+  {$L Win32\PPMdContext.obj}
+  {$L Win32\PPMdSubAllocatorVariantI.obj}
+  {$L Win32\CarrylessRangeCoder.obj}
+{$ELSEIF DEFINED(WIN64)}
+  {$L Win64\PPMdVariantI.obj}
+  {$L Win64\PPMdContext.obj}
+  {$L Win64\PPMdSubAllocatorVariantI.obj}
+  {$L Win64\CarrylessRangeCoder.obj}
+{$IFEND}
 
 
 { CarrylessRangeCoder.h ==================================================== }
@@ -108,13 +107,13 @@ end;
 
 type
   PPMdModelVariantI = Pointer;
-{
+
 function CreatePPMdModelVariantI(const input: TInStream;
   suballocsize, maxorder, restoration: Integer): PPMdModelVariantI; cdecl; external;
 procedure FreePPMdModelVariantI(Self: PPMdModelVariantI); cdecl; external;
 
 function NextPPMdVariantIByte(Self: PPMdModelVariantI): Integer; cdecl; external;
-}
+
 
 { Decompression routines =================================================== }
 
@@ -136,7 +135,7 @@ begin
       OutPos := 0;
 
       ASrc.ReadBuffer(Params, SizeOf(Params));// Pkzip stream header
-      ppmd := CreatePPMdModelVariantI(CarrylessRangeCoder.PInStream(Src),
+      ppmd := CreatePPMdModelVariantI(Src^,
         (((Params shr 4) and $FF) + 1) shl 20,// sub-allocator size
         (Params and $0F) + 1,                 // model order
         Params shr 12);                       // model restoration method
