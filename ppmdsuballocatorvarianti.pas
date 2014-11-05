@@ -312,12 +312,12 @@ begin
     p:= @self^.BList[i];
     while Count[i] <> 0 do
     begin
-      while (NextBlock(p,self)^.Stamp <> 0) do
+      while (NextBlock(p,self)^.Stamp = 0) do
       begin
   	UnlinkBlockAfter(p, self);
   	Dec(self^.BList[i].Stamp);
         Dec(Count[i]);
-  	if (Count[i] <> 0) then break;
+  	if (Count[i] = 0) then break;
       end;
       p:= NextBlock(p, self)
     end;
@@ -339,7 +339,7 @@ begin
     while (AreBlocksAvailable(@self^.BList[i])) do
     begin
       p:= PPPMdMemoryBlockVariantI(RemoveBlockAfter(@self^.BList[i], self));
-      if (p^.NU <> 0) then continue;
+      if (p^.NU = 0) then continue;
       p1:= p + p^.NU;
       while (p1^.Stamp = $ffffffff) do
       begin
@@ -356,7 +356,7 @@ begin
   begin
     p:= RemoveBlockAfter(@s0, self);
     sz:= p^.NU;
-    if (sz <> 0) then continue;
+    if (sz = 0) then continue;
 
     while (sz > 128) do
     begin

@@ -203,7 +203,7 @@ begin
   if (mincontext^.LastStateIndex <> 0) then DecodeSymbol1VariantI(mincontext, self)
   else DecodeBinSymbolVariantI(mincontext, self);
 
-  while (self^.core.FoundState <> nil) do
+  while (self^.core.FoundState = nil) do
   begin
     repeat
       Inc(self^.core.OrderFall);
@@ -440,7 +440,7 @@ begin
     else
     begin
       state:= PPMdContextOneState(context);
-    //	state^.Freq += cuint8((not PPMdContextSuffix(context, @self^.core)^.LastStateIndex) and (state^.Freq < 24));
+      state^.Freq += cuint8((not PPMdContextSuffix(context, @self^.core)^.LastStateIndex) and cuint8(state^.Freq < 24));
     end;
 
     if (PPMdStateSuccessor(state, @self^.core) <> upbranch) then
